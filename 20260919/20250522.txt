@@ -1,0 +1,240 @@
+20250522 云盘项目总结 
+ 
+第一阶段：虚拟机创建与资源规划
+我们做了什么
+评估宿主机资源（i5-13500，20线程，32G内存，2T NVMe，2T SATA SSD）
+
+将MC服务器虚拟机（VM 111）的CPU从4核压缩到2核，内存从8G压缩到2G
+
+将MC虚拟机磁盘从512G压缩到128G
+
+创建AI虚拟机（VM 112），分配8核CPU、24G内存、64G系统盘、1.5T数据盘
+
+直通整块1.8T SATA SSD给AI虚拟机
+
+直通10G网卡的VF（虚拟功能）给AI虚拟机
+
+我们解决了什么
+宿主机资源不足的问题：通过压缩MC虚拟机释放了6G内存和大量磁盘空间
+
+10G网卡的合理分配：通过SR-IOV将物理网卡分成4个VF，MC和AI各占一个，不冲突
+
+过程中遇到的问题
+MC虚拟机磁盘压缩后无法启动：GPT分区表备份头还在旧磁盘末尾（512G位置），磁盘缩到128G后分区表损坏
+
+VF直通地址不完整：PVE网页选择VF时自动简化地址，导致两个虚拟机冲突
+
+系统装错磁盘：Ubuntu安装到了1.8T数据盘，64G系统盘空着
+
+救援模式入口难找：Ubuntu Server ISO的救援模式藏在安装向导内部
+
+如何解决
+用gdisk修复GPT分区表，自动将备份头移到新磁盘末尾
+
+用命令行qm set精确指定VF地址（如0000:04:10.0、0000:04:10.2）
+
+重装系统，在存储配置界面只勾选64G系统盘
+
+在安装向导界面按Ctrl+Alt+F2直接打开终端手动挂载修复
+
+第二阶段：网络配置
+我们做了什么
+配置AI虚拟机管理网卡（192.168.31.47，DHCP）
+
+配置10G直连网卡（10.0.0.2/24），与主力机（10.0.0.3）和宿主机（10.0.0.1）同网段
+
+梳理4个10G VF（enp4s0v0到v3），确认MC占用VF0，AI占用VF1
+
+配置Windows路由表，确保访问10.0.0.2时走10G网卡
+
+我们解决了什么
+高速文件传输通道：10G直连线路打通，大文件传输速度达到SATA SSD写入上限
+
+管理网络与数据网络分离：管理流量走路由器（192.168.31.x），文件传输走直连（10.0.0.x），互不干扰
+
+过程中遇到的问题
+Windows的10G网卡自动获取169.254地址（APIPA）：静态IP未成功写入
+
+Windows访问10.0.0.2时走了管理网卡：路由表没有指向10G网卡
+
+Samba报错Permission denied：touch创建的数据库文件属root，容器进程无权写入
+
+如何解决
+用Set-NetIPAddress强制设置10.0.0.3/24，禁用IPv6干扰
+
+添加路由规则：New-NetRoute -DestinationPrefix "10.0.0.0/24" -InterfaceAlias "以太网 4"
+
+给数据库文件添加chmod 666权限，让所有用户可读写
+
+第三阶段：Samba共享搭建
+我们做了什么
+在AI虚拟机上安装Samba服务
+
+配置两个共享：[ssd]指向/mnt/ssd，[data]指向/data
+
+创建专用用户smbuser并设置密码
+
+配置Samba强制绑定10G网卡（interfaces = 10.0.0.2/24）
+
+我们解决了什么
+Windows与Linux之间的文件共享：通过SMB协议，Windows文件管理器直接访问AI虚拟机硬盘
+
+权限隔离：只有smbuser能访问共享，其他用户被拒绝
+
+过程中遇到的问题
+Windows 11 24H2的SMB签名策略弹窗：系统强制要求SMB签名，导致反复弹登录框
+
+文件管理器看不到网络驱动器：net use显示OK，但资源管理器不显示盘符
+
+Samba服务停止后未自动恢复：Samba在Tailscale安装后崩溃，没有自动重启
+
+Windows拒绝空密码来宾访问：安全策略AllowInsecureGuestAuth默认禁用
+
+共享名重复：配置文件里两个共享都写成了[ssd]，实际应该是[data]
+
+如何解决
+配置Samba签名：在smb.conf中添加server signing = mandatory
+
+放弃盘符映射，改用直接访问\\10.0.0.2\ssd，并创建快捷方式
+
+添加systemd自动重启：Restart=on-failure，RestartSec=10
+
+在Windows组策略中启用"不安全的来宾登录"，禁用SMB签名要求
+
+修正共享名称：[ssd]和[data]严格分离，各自只有一条path
+
+第四阶段：FileBrowser可视化面板部署
+我们做了什么
+用Docker部署FileBrowser作为云盘Web管理面板
+
+挂载4个目录：cache（缓存区）、archive（存档区）、guest（访客区）、jiaren（家人区）
+
+创建多用户：merlin（管理员）、friend（访客）、family（家人）
+
+设置Scope权限限制：访客只能看自己的目录
+
+我们解决了什么
+可视化文件管理：通过浏览器上传、下载、预览、移动文件
+
+缓存审核流程：文件先进入cache，审核后移动到archive，实现备份审批机制
+
+多用户权限隔离：不同用户只能访问被授权的目录
+
+过程中遇到的问题
+数据库路径不匹配：不同镜像（官方 vs hurlenko）的数据库路径分别为/database.db和/config/filebrowser.db，挂载卷路径写错导致数据不持久
+
+端口映射错误：容器内监听80却映射8080:8080，或者监听8080却映射8080:80
+
+/static目录缺失：部分镜像构建时静态资源不完整，页面卡在loading动画
+
+配置文件缺失：/.filebrowser.json不存在，控制台报catchAll is not iterable
+
+访客Scope设置无效：容器重建时漏掉挂载卷，导致/srv/guest不存在
+
+rm删除目录失败：/root/filebrowser.db是目录不是文件，rm -f删不掉
+
+如何解决
+启动后先用docker logs确认实际数据库路径，再调整挂载卷
+
+用docker logs | grep Listening确认容器内监听端口，再调整-p映射
+
+换用稳定镜像filebrowser/filebrowser:v2.31.2
+
+手动创建配置文件，指定root=/srv
+
+重建容器时确保所有挂载卷写入命令行
+
+删除目录用rm -rf，创建空文件用touch后紧跟chmod 666
+
+第五阶段：备份系统搭建
+我们做了什么
+创建PowerShell备份脚本，每周六自动运行
+
+配置SSH免密登录（ed25519密钥对）
+
+通过SCP将Pictures和Videos文件夹上传到缓存区/data/cache
+
+创建Windows计划任务，每周六晚22:00自动触发
+
+我们解决了什么
+自动化备份：无需手动操作，每周自动上传到缓存区等待审核
+
+走10G通道：SCP连接10.0.0.2，不占用管理网带宽
+
+过程中遇到的问题
+SSH免密登录失败：公钥已上传但登录仍要密码
+
+authorized_keys含BOM字符：Windows PowerShell上传公钥时带UTF-8 BOM
+
+脚本写入权限不足：msixj用户不在smbuser组，无法在/data/cache创建目录
+
+如何解决
+检查SSH服务端配置：sudo sshd -T确认pubkeyauthentication yes
+
+在AI虚拟机上直接用echo重建干净的authorized_keys文件，避免Windows污染
+
+将msixj加入smbuser组，修改目录权限为775
+
+第六阶段：Tailscale外网穿透配置
+我们做了什么
+在AI虚拟机上安装Tailscale客户端
+
+获取Tailscale虚拟IP：100.88.41.51
+
+验证外网访问FileBrowser面板：http://100.88.41.51:8080
+
+配置访客目录权限：创建guest和jiaren两个访客目录
+
+我们解决了什么
+外网安全访问：通过Tailscale加密隧道，在外面也能管理云盘
+
+无需配置路由器端口转发，安全性更高
+
+过程中遇到的问题
+Tailscale启用后Samba无法连接：10G网卡被重新识别为"公用"网络
+
+Samba在Tailscale安装后崩溃：网卡短暂中断导致Samba绑不上IP，触发panic
+
+Samba崩溃后未自动重启：systemd默认不自动重启异常退出的服务
+
+如何解决
+修改网络配置文件：Set-NetConnectionProfile -InterfaceAlias "以太网 4" -NetworkCategory Private
+
+手动重启Samba：systemctl restart smbd
+
+添加自动重启策略：创建override文件，添加Restart=on-failure和After=network-online.target
+
+通性反思：跨阶段的共同问题
+Docker部署的通病
+每次换镜像时没有先验证默认路径（数据库、配置、端口），而是沿用旧假设
+
+配置文件写在容器内但没有挂载到宿主机，重启或重建后丢失
+
+文件权限问题反复出现：touch创建的文件属性为root，容器进程无权写入
+
+网络问题的通病
+新软件（Tailscale、Docker）安装后触发了网络重识别，改变了原有的网络配置文件
+
+服务启动顺序未控制：Samba在网卡IP就绪前启动导致崩溃
+
+权限问题的通病
+目录所有者（smbuser）和实际操作用户（msixj）不一致
+
+没有将需要多用户访问的目录统一到一个组内管理
+
+Windows安全策略的困扰
+Windows 11 24H2的SMB签名要求和来宾策略是弹窗和权限错误的根本原因
+
+微软强制要求的安全签名导致Samba连接反复弹登录框
+
+今后的预防措施
+部署新服务前先验证：镜像路径、端口、配置文件位置
+
+所有运行时修改的配置文件必须持久化到宿主机
+
+目录权限规划时，将需要共同访问的用户加入同一组，目录权限设为775
+
+服务启动顺序要明确：依赖网卡的服务必须加After=network-online.target
+
+每个服务必须加自动重启策略：Restart=on-failure
+

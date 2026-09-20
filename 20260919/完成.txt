@@ -1,0 +1,112 @@
+三、实施步骤
+安装 Node.js 22
+
+通过 NodeSource 脚本安装 nodejs 和 npm。
+
+修复 npm 全局安装权限
+
+将 npm 全局目录改为用户级：npm config set prefix '~/.npm-global'，并加入 PATH。
+
+解决 EACCES 权限报错，成功全局安装 @deepseek-ai/dsh。
+
+安装 Ollama 并配置数据路径
+
+安装 Ollama，使用 systemd override 设置 OLLAMA_MODELS=/data/ai/ollama-models 和 OLLAMA_HOST=0.0.0.0。
+
+拉取 deepseek-r1:14b（9.0 GB），确认模型运行流畅。
+
+部署 DSH
+
+全局安装 DSH，设置 DSH_HOME=/data/ai/dsh-home。
+
+发现 DSH 出于安全考虑，拒绝监听 0.0.0.0，只允许 127.0.0.1。
+
+配置 DSH 与 Ollama 对接
+
+在 DSH Web UI 的“模型”设置中，手动添加自定义提供方（Provider）。
+
+API 地址：http://127.0.0.1:11434/v1，协议：openai-completions。
+
+在“模型目录”中显式填入 deepseek-r1:14b，解决“provider resolves no models”报错。
+
+远程访问方案（SSH 隧道）
+
+放弃 0.0.0.0 和 Tailscale Serve 的复杂插件方案。
+
+采用 SSH 本地端口转发：ssh -f -N -L 3080:127.0.0.1:3080 msixj@10.0.0.2。
+
+利用 Windows 计划任务 + PowerShell 脚本（dsh-tunnel.ps1）实现开机自启和后台持久运行。
+
+服务自启与恢复
+
+给 FileBrowser 容器设置 --restart=always。
+
+检查重启后的 Ollama、DSH、Samba、Tailscale、10G 网卡均正常恢复运行。
+
+四、关键报错与解决方案
+ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED：pnpm 拦截 git 托管依赖的构建脚本。已在 pnpm-workspace.yaml 的 allowBuilds 中添加完整带 hash 的键值。
+
+dsh: pnpm not found on PATH：DSH 插件管理依赖 pnpm，执行 npm install -g pnpm 解决。
+
+llm-deepseek: no API key for provider route "deepseek-official"：DSH 默认模型指向 DeepSeek 官方。在 Web UI 中正确配置 Ollama 为提供方，并填入本地模型名解决。
+
+provider 'ollama' resolves no models：DSH 需要显式声明模型列表，在 Web UI 的模型目录中手动添加 deepseek-r1:14b。
+
+401 Unauthorized / 403 Forbidden（DSH 远程访问）：DSH 只信任 127.0.0.1 本机请求。通过 SSH 隧道将远程请求伪装成本机回环请求，绕过安全限制。
+
+docker: filebrowser Exited（重启后容器未启动）：缺少 --restart=always 参数，已补上。
+
+dsh 在 Linux 上全局安装 npm 包的经典权限问题
+輸出為
+msixj@aiserver:~$ npm install -g @deepseek-ai/dsh
+npm error code EACCES
+npm error syscall mkdir
+npm error path /usr/lib/node_modules/@deepseek-ai
+npm error errno -13
+npm error Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/@deepseek-ai'
+npm error     at async mkdir (node:internal/fs/promises:858:10)
+npm error     at async /usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:638:20
+npm error     at async Promise.allSettled (index 0)
+npm error     at async [reifyPackages] (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:334:11)
+npm error     at async Arborist.reify (/usr/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:149:5)
+npm error     at async Install.exec (/usr/lib/node_modules/npm/lib/commands/install.js:150:5)
+npm error     at async Npm.exec (/usr/lib/node_modules/npm/lib/npm.js:207:9)
+npm error     at async module.exports (/usr/lib/node_modules/npm/lib/cli/entry.js:74:5) {
+npm error   errno: -13,
+npm error   code: 'EACCES',
+npm error   syscall: 'mkdir',
+npm error   path: '/usr/lib/node_modules/@deepseek-ai'
+npm error }
+npm error
+npm error The operation was rejected by your operating system.
+npm error It is likely you do not have the permissions to access this file as the current user
+npm error
+npm error If you believe this might be a permissions issue, please double-check the
+npm error permissions of the file and its containing directories, or try running
+npm error the command again as root/Administrator.
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+npm error A complete log of this run can be found in: /home/msixj/.npm/_logs/2026-09-19T10_14_40_852Z-debug-0.log
+msixj@aiserver:~$ dsh --version
+Command 'dsh' not found, but can be installed with:
+sudo apt install dsh
+pm 的全局目录 /usr/lib/node_modules 属于 root，普通用户没有写入权限。
+
+解決：創建用戶全局目錄
+
+硬件：AI虚拟机（VM 112）已就绪，RTX 5060 Ti直通，驱动CUDA正常。
+
+存储：/data和/mnt/ssd已挂载，Samba共享正常。
+
+网盘：FileBrowser已部署，多用户（admin/friend/family）配置完成，缓存/存档/访客/家人目录正常。
+
+备份：Windows端自动上传脚本（Pictures和Videos）已配置，每周六运行。
+
+AI推理：Ollama已安装，deepseek-r1:14b已拉取并测试正常。
+
+DSH：已安装，Web界面可访问（通过Tailscale Serve + token认证）。
+
+Tailscale：已配置，远程访问正常。
