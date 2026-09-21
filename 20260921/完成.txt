@@ -1,0 +1,171 @@
+2026-09-21 工作总结
+一、手机访问 DSH 报 403 的修复
+问题起点
+手机通过 Tailscale 访问 https://aiserver.tail2fe40b.ts.net/ 时，DSH 报 403，提示 listProviders failed。
+
+根本原因
+DSH 只信任 Host 头为 127.0.0.1:3080 或 localhost:3080 的请求，Tailscale 域名不在白名单里。这是 DSH 的安全设计，防止远程请求绕过本机限制。
+
+尝试过但失败的方案：Caddy 反向代理
+安装 Caddy，监听 127.0.0.1:3081，转发到 127.0.0.1:3080
+
+用 header_up 改写 Host、Origin、Referer
+
+Tailscale Serve 指向 127.0.0.1:3081
+
+失败原因：DSH 生成的 HTML 里 JS 资源路径是绝对地址 http://127.0.0.1:3080/static/...，页面是 HTTPS，浏览器拦截混合内容，主 JS 没加载，手机白屏
+
+结论：标准 Caddy 无法改写响应体，放弃
+
+最终成功的方案：DSH 原生 --trusted-host
+修改 DSH 的 systemd 服务，加 --trusted-host aiserver.tail2fe40b.ts.net
+
+Tailscale Serve 直接指向 127.0.0.1:3080，去掉 Caddy
+
+停用 Caddy
+
+过程中踩的坑
+端口冲突：手动跑的 ssh -L 3080:127.0.0.1:3080 占用 3080，DSH 启动时 EADDRINUSE 反复重启。杀掉进程后解决。
+
+插件冲突：dsh-settings-remote 依赖不存在的 apiProxy 服务，激活失败导致 DSH 崩溃。卸载后解决。
+
+模型 404：DSH 的 settings.yaml 里 baseURL 仍是 11434（直连 Ollama），而模型名 dshmid 只存在于中间层。DSH 把 dshmid 发给 Ollama，Ollama 不认识。
+
+当前状态
+DSH 正常运行，监听 127.0.0.1:3080
+
+Tailscale Serve 直连 3080，https://aiserver.tail2fe40b.ts.net/ 可访问
+
+手机聊天可用
+
+手机设置页面仍不可用（DSH 限制 loopback 访问）
+
+dsh-lan-bridge 已安装（crypto.randomUUID polyfill 生效）
+
+dsh-settings-remote 已卸载
+
+二、中间层日志格式优化
+改动
+把 JSON Lines 格式改成人类可读的步骤流水账，每次请求四步清晰分开：
+
+text
+========== [2026-09-21 15:17:39] Session: 9f7cf2 ==========
+[步骤 1/4] DSH 请求
+  模型: dshmid | 流式: 是 | 消息数: 150
+  用户输入: 你好
+[步骤 2/4] DSR1 意图判断  (15:17:44)
+  原始输出: {"intent": "CHAT", "key_info": "你好"}
+  解析结果: intent=CHAT | key_info=你好
+[步骤 3/4] Qwen 润色  (15:17:48)
+  输出: 你好！有啥需要帮忙的吗？
+[步骤 4/4] 返回 DSH  (15:17:48)
+  耗时: 9.5s
+  最终回复: 你好！有啥需要帮忙的吗？
+========== Session 9f7cf2 结束 ==========
+新增日志接口
+log_session_start：记录请求入口
+
+log_dsr1：记录意图判断原始输出和解析结果
+
+log_qwen：记录润色输出
+
+log_final：记录最终回复和耗时
+
+log_event：通用事件（ASTRA 规划）
+
+log_error：错误记录
+
+三、接 ASTRA 做工具规划（不执行）
+架构简化
+取消原来的"Qwen 处理 REMINDER / RECORD"分支，改成：
+
+text
+DSH → 中间层
+    → DSR1 判断意图
+        ├── CHAT → Qwen 回复
+        └── 其他（QUERY / TASK / REMINDER / RECORD）→ ASTRA 规划工具 → 显示待处理
+Qwen 只负责纯聊天，不碰任何带操作性质的意图。 这样 Qwen 就没机会假装执行了。
+
+新增工具定义
+在 TOOLS_SCHEMA 里补充：
+
+set_reminder(time, content)：设置提醒
+
+record_note(content)：记录信息
+
+原有的工具：
+
+bash(command)：执行 shell 命令
+
+read_file(path)：读取文件
+
+write_file(path, content)：写入文件
+
+web_search(query)：联网搜索
+
+get_time()：获取当前时间
+
+新增功能
+astra_plan：调用 ASTRA 生成工具调用计划，但不执行
+
+format_tool_plan：把 tool_calls 格式化成人类可读的待处理列表
+
+save_pending：把待处理计划存到 /data/ai/agent-state/pending/{session_id}.json
+
+Qwen 幻觉修复
+在 qwen_polish 的 system_prompt 里加硬约束：
+
+你的回复只允许表达"我将会做某事"，禁止表达"我已经做完某事"
+严禁使用"我查到了""我已经完成""已经帮您""已经记下"等表示已完成的措辞
+
+但实际测试发现约束仍未完全生效，因为架构改成"Qwen 只处理 CHAT"，这个问题自然消失了。
+
+四、测试结果
+三条测试全部通过
+输入	DSR1 判断	处理者	输出	耗时
+你好	CHAT	Qwen	"你好！有啥需要帮忙的吗？"	9.5s
+明天早上提醒我带伞	REMINDER	ASTRA	"计划执行：1. set_reminder(content=带伞, time=明天早上)"	20.4s
+写一个.txt文本在agent目录	TASK	ASTRA	"计划执行：1. 执行命令 touch agent/file.txt"	62.8s
+验证成功的内容
+DSR1 意图分类准确（CHAT / REMINDER / TASK 全部正确）
+
+ASTRA 原生工具调用正常工作（返回标准 tool_calls 字段）
+
+中间层能正确解析 DSR1 输出并路由到对应分支
+
+Qwen 不再编造"已完成"
+
+待处理计划能格式化成人类可读文本
+
+五、发现的问题
+1. ASTRA 推理耗时较长
+你好 只需 9.5s（Qwen 直出）
+
+提醒 用了 20.4s（ASTRA 加载 + 规划）
+
+创建文件 用了 62.8s（ASTRA 加载 + 规划 + 思考）
+
+原因：显存只有 16GB，DSR1（9GB）和 ASTRA（9.4GB）不能同时常驻，每次切换都要重新加载模型。
+
+优化方向（后续）：
+
+调整 OLLAMA_KEEP_ALIVE 时间
+
+考虑让 DSR1 常驻，ASTRA 按需加载
+
+或评估是否把 DSR1 也换成更小的模型
+
+2. ASTRA 思考过程被记录下来
+astra_plan 的日志里能看到 ASTRA 的完整思考内容（"用户想要设置一个提醒..."），这些应该只用于调试，不应该作为最终输出的一部分。
+
+3. 工具显示可以更友好
+set_reminder 目前显示为：
+
+text
+1. set_reminder(content=带伞, time=明天早上)
+可以改成更自然的中文：
+
+text
+1. 设置提醒：明天早上 带伞
+4. 确认执行的流程未实现
+用户回复"确认"后，目前没有任何动作。这个流程还没做。
