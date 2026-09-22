@@ -1,11 +1,6 @@
 九、已知坑与预防
 坑	原因	预防
-DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
-Caddy 改写响应体失败	标准 Caddy 不支持	改用 DSH 原生参数
-JS 资源混合内容拦截	HTML 内绝对路径写死	不用反向代理，直接信任域名
+DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
 端口占用 EADDRINUSE	手动 ssh 隧道占用端口	部署前 ss -tlnp 检查
-插件激活失败导致 DSH 崩溃	依赖不存在的服务	出问题先看 journalctl，卸载问题插件
-模型名 404	baseURL 和模型名不匹配	改配置后立即验证
-dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
-显存超 16GB	两模型同时加载	OLLAMA_MAX_LOADED_MODELS=1
-Qwen 假装已完成任务	执行层缺失	加硬约束 + 实装工具执行
+插件激活失败导致 DSH 崩溃	依赖不存在的服务	出问题先看 journalctl，卸载问题插件
+dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
