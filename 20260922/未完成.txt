@@ -1,0 +1,3 @@
+DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
+dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
+显存超 16GB	两模型同时加载	OLLAMA_MAX_LOADED_MODELS=1
