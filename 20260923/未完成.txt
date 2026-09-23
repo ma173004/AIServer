@@ -1,0 +1,15 @@
+DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
+
+dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
+
+显存超 16GB	两模型同时加载	OLLAMA_MAX_LOADED_MODELS=1
+
+给 dsh-middleware 加一个 /health 的监控页 持续监控运行状态
+
+配置日志轮转 压缩
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+alias agents='cd /data/ai/agents'
+
+
+给 Ollama 设置更适合的 KEEP_ALIVE

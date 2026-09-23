@@ -1,0 +1,12 @@
+待办已整理为阶段任务
+
+目前是每日将 进行的事件
+
+
+给 dsh-middleware 加一个 /health 的监控页
+
+配置日志轮转
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+
+给 Ollama 设置更适合的 KEEP_ALIVE

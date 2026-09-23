@@ -1,0 +1,8 @@
+过滤DSH的杂音
+更改aiserver时间（好小的成果 但写下去吧）
+命令历史优化：
+echo 'HISTSIZE=10000' >> ~/.bashrc
+echo 'HISTFILESIZE=20000' >> ~/.bashrc
+echo 'HISTTIMEFORMAT="%F %T "' >> ~/.bashrc
+source ~/.bashrc
+
