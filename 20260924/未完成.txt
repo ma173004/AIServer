@@ -1,0 +1,7 @@
+DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
+
+dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+alias agents='cd /data/ai/agents'
+
