@@ -1,0 +1,10 @@
+二、判断层：DSR1
+属性	内容
+模型	liodon-ai/DeepSeek-R1-Distill-Qwen-14B-imatrix:q5_k_m
+岗位	入口分流器 + 大工程主观验收
+入口输入	用户原文
+入口输出	{"route": "WRITE|READ", "key_info": "..."}
+验收输入	大工程每步结果摘要（不看原始产物）
+验收输出	PASS 或 FAIL：原因
+temperature	0.1
+不做	生成、情绪分析、复杂度判断、小工具验收
