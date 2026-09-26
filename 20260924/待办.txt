@@ -1,0 +1,19 @@
+待办已整理为阶段任务
+
+目前是每日将 进行的事件
+
+
+给 dsh-middleware 加一个 /health 的监控页
+
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+
+
+DSR1 判断层 更改
+
+WRITE：改变系统状态（创建文件、修改配置、执行命令、部署、设置提醒）
+
+READ：不改变系统状态（查询、搜索、总结、聊天、记录）
+
+{"route": "READ", "key_info": "..."}
+{"route": "WRITE", "key_info": "..."}

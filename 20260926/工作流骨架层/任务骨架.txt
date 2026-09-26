@@ -1,0 +1,200 @@
+# 未来接口
+# task_manager = TaskManager()
+# if task_manager.has_pending_notify():
+#     ...
+调度规则
+单任务队列：一次跑一个
+
+先进先出：新任务排队等待
+
+用户输入优先：任何用户输入到达，ASTRA 立即让位
+
+
+ASTRA 执行一步 → 写日志 → 检查用户输入
+   ├── 有输入 → ASTRA 让位 → DSR1 处理 → 等 5 分钟无新输入 → ASTRA 回工位继续
+   └── 无输入 → 直接继续下一步
+
+
+
+/data/ai/tasks/
+├── active/
+│   └── {task_id}/
+│       ├── meta.json          # 状态、进度、当前步
+│       ├── plan.md            # 工作表（ASTRA 生成）
+│       ├── journal.md         # 人类可读日志
+│       ├── steps/
+│       │   ├── step-01.json
+│       │   ├── step-02.json
+│       │   └── ...
+│       ├── artifacts/         # 中间产物
+│       └── summary.md         # 完成后总结
+├── archived/
+│   └── {year}/{task_id}/      # 完整归档
+├── queue.json                 # 排程队列
+└── notify_pending.json        # 待告知任务列表
+
+
+/data/ai/tasks/
+├── active/
+│   └── {task_id}/
+│       ├── meta.json          # 状态、进度、当前步
+│       ├── plan.md            # 工作表
+│       ├── journal.md         # 人类可读日志
+│       ├── steps/             # 每步结构化记录
+│       ├── artifacts/         # 中间产物
+│       └── summary.md         # 完成后总结
+├── archived/
+│   └── {year}/{task_id}/
+├── queue.json                 # 排程队列
+└── notify_pending.json        # 待告知任务
+
+
+
+
+
+{
+  "task_id": "20260926-abc123",
+  "title": "总结视频",
+  "origin": "用户 2026-09-26 14:30 说：帮我总结这个视频",
+  "status": "running",
+  "current_step": 3,
+  "total_steps": 5,
+  "created_at": "2026-09-26T14:30:00",
+  "updated_at": "2026-09-26T14:35:12",
+  "paused_reason": null
+}
+
+
+# 工作表：总结视频
+
+## 阶段 1：下载视频
+- 输入：用户提供的 URL
+- 输出：artifacts/video.mp4
+- 方法：wget / yt-dlp
+
+## 阶段 2：提取音频
+- 输入：video.mp4
+- 输出：artifacts/audio.mp3
+- 方法：ffmpeg
+
+## 阶段 3：语音转文字
+...
+
+
+
+{
+  "step": 3,
+  "name": "语音转文字",
+  "started_at": "2026-09-26T14:33:00",
+  "finished_at": "2026-09-26T14:35:12",
+  "problem": "需要把 audio.mp3 转成文字",
+  "method": "bash whisper audio.mp3",
+  "expected": "得到 transcript.txt",
+  "result": "success",
+  "output": "artifacts/transcript.txt",
+  "next_step": "生成摘要",
+  "notes": "音频 15 分钟，转写耗时 2 分钟"
+}
+
+
+
+[
+  {
+    "task_id": "20260926-abc123",
+    "title": "总结视频",
+    "completed_at": "2026-09-26T15:00:00",
+    "summary": "视频总结完成，主要讲了..."
+  }
+]
+
+
+
+输入：用户任务
+输出：plan.md（阶段列表）
+
+输入：
+  - 用户任务
+  - plan.md 全文
+  - journal.md 已完成部分
+  - 当前阶段需求
+输出：
+  - 工具调用（真的执行）
+  - step-XX.json
+  - journal.md 追加
+
+
+
+输入：plan.md + 完整 journal.md
+输出：summary.md，包含：
+  - 任务名
+  - 起因
+  - 结果如何
+  - 实现没有
+  - 为什么
+  - 完成度
+
+
+
+
+
+五、调度器
+队列规则
+单任务队列：一次跑一个
+
+先进先出：用户新任务进来时，如果当前有任务在跑，排队等待
+
+用户输入优先：任何用户输入到达，ASTRA 立即让位
+
+
+
+
+
+
+ASTRA 完成一步
+   ↓
+检查是否有用户输入正在等待
+   ├── 有 → 写日志 → status = waiting_user → 让位
+   │         ↓
+   │      DSR1 处理用户输入
+   │         ↓
+   │      等 5 分钟无新输入
+   │         ↓
+   │      ASTRA 回工位 → status = running → 继续下一步
+   │
+   └── 无 → 直接继续下一步
+
+
+
+
+任务完成
+
+写 summary.md → 移到 archived/ → 写入 notify_pending.json
+   ↓
+用户下次说话时，DSR1 检查 notify_pending
+   ├── 有 → 附在回应里告知
+   └── 无 → 正常回应
+
+
+
+
+# 先检查是否有待告知任务
+pending = read_notify_pending()
+# 检查是否有正在等待的用户输入需要打断 ASTRA
+if task_running():
+    signal_task_pause()
+
+
+def astra_generate_plan(task_input) -> str:
+    """生成工作表，返回 plan.md 内容"""
+
+def astra_execute_step(task_id, step_num, context) -> dict:
+    """执行一步，返回结构化记录"""
+
+def astra_summarize(task_id) -> str:
+    """生成总结，返回 summary.md 内容"""
+
+
+
+
+
+

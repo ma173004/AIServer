@@ -1,0 +1,70 @@
+待办已整理为阶段任务
+
+目前是每日将 进行的事件
+
+
+给 dsh-middleware 加一个 /health 的监控页
+
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+
+顺带记下两个观察（不现在改）
+① Qwen 在 READ 分支会编造事实
+
+今天天气怎么样 → Qwen 编了"蓝天白云，温度刚好"。
+
+这是预期的，因为 READ 分支的细分（3B 流程）还没实装——按架构，"查询类"应该先让 Qwen 分解"需要调什么资料"，然后走工具调用。现在直接走"纯聊天"路径，Qwen 不知道真天气，就只能编。
+
+属于批次 2.x 要解决的问题，你说了提示词解决，先记着。
+
+② 日志有重复输出
+
+Session: 8cef82 那段贴了两次，如果不是你复制重复，那就是 log_final 或 _write 有重复写入。下次重启服务时留意一下，如果还重复，我们再查。
+
+
+
+qwen3 和 astra 的调用工具格式不一样
+
+"arguments": {"city": "北京"}       // Qwen3
+"arguments": "{\"city\": \"北京\"}" // ASTRA
+
+
+
+READ → 3B（当前只是 Qwen 直出，需要加 Qwen 分解 + 简单/复杂判断）
+WRITE → 3A（当前 ASTRA 规划完就显示"待确认"，需要加执行 + 检查 + 重试）
+
+
+这一步工作量比 1.2 大，因为要引入：
+
+3B 的"Qwen 分解资料需求"
+
+3B 的"简单/复杂"判断
+
+3A 的"占位执行"（先不真执行）
+
+3A 的"DSR1 结果检查"
+
+3A 的"重试循环（最多 5 轮）"
+
+
+五个测试的结果
+
+卡点 1：pending 的 key 是坏的
+session_id = uuid.uuid4().hex[:6]          # 每次请求新生成
+...
+save_pending(session_id, user_input, tool_calls)   # 存到 /data/ai/agent-state/pending/{session_id}.json
+
+DSH 每发一次请求，session_id 就是新的。所以：
+
+用户第 1 条："帮我总结这个视频" → 存 pending/abc123.json
+
+用户第 2 条："确认" → 新 session def456 → 代码找 pending/def456.json → 永远找不到
+
+
+没有读取 pending 的逻辑：用户回复“确认”后，代码不知道要执行什么。
+
+没有工具执行层：save_pending 存了计划，但没有 execute_pending。
+
+没有错误重试：try/except 只记录错误，没有重试或降级。
+
+

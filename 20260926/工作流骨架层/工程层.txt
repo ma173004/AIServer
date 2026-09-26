@@ -1,0 +1,11 @@
+三、工程层：ASTRA
+属性	内容
+模型	mradermacher/ASTRA-14B-Thinking-v1-i1:Q5_K_M
+岗位	复杂度判断 + 规划 + 执行
+输入	用户原文 + DSR1 的 key_info
+输出（scope=small）	直接 tool_calls（单步工具）
+输出（scope=large）	建立任务目录 → plan.md → 逐步执行 → 每步 step-XX.json
+结果去向	无论 small 还是 large，结果最终回到 Q2b
+temperature	0.3
+让位机制	每步完成后检查用户输入；有输入 → 暂停让位 → DSR1 处理 → 5 分钟无输入后继续
+不做	验收、生成对话、最终润色

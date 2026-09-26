@@ -1,0 +1,215 @@
+阶段 1：中间层稳固化
+1.1 ✅ DSH 噪音过滤
+agent_dshguolv.py 已实现
+
+5 类噪音前缀已覆盖
+
+1.2 ✅ 过滤器回放验证
+6/6 dump 通过
+
+1.3 ⏳ DSR1 输出改为 WRITE / READ 二分
+改什么：
+
+diaoyongai.py 的 dsr1_classify
+
+输出从 {"intent": "...", "key_info": "..."} 改为 {"route": "WRITE|READ", "key_info": "..."}
+
+去掉 emotion 字段（情绪移交给 Qwen1）
+
+加 5 条 Few-shot（天气=READ，创建文件=WRITE，表达情绪=READ，设提醒=WRITE，打招呼=READ）
+
+前置： 无
+
+验收： 用 8 条边界测试（混合意图、易误判）验证 route 正确
+
+1.4 ⏳ dshmid.py 按 route 分支
+改什么：
+
+chat_completions 里的分支判断
+
+READ → Qwen3 链路（暂用现有 qwen_polish 占位）
+
+WRITE → ASTRA 链路（暂用现有 astra_plan 占位）
+
+前置： 1.3 完成
+
+验收： 输入"你好"→ READ 分支；"帮我在 /tmp 建文件"→ WRITE 分支
+
+1.5 ⏳ Qwen3 四次调用框架搭建
+改什么：
+
+在 diaoyongai.py 里新增 4 个函数：
+
+qwen_q1_emotion — 情绪分析（先占位，返回结构化 JSON）
+
+qwen_q2a_decide — 状态与决策（先占位）
+
+qwen_q2b_draft — 草拟输出（用现有 qwen_polish 改造）
+
+qwen_q3_polish — 最终润色（暂用 Q2b 输出）
+
+在 dshmid.py 里串起来
+
+提示词先写最小版，后面阶段 3 再固化
+
+前置： 1.4 完成
+
+验收： 输入"今天好累" → Q1→Q2a→Q2b→Q3 跑一遍，每步日志可见
+
+1.6 ⏳ notify_pending 结构修复
+改什么：
+
+从数组改为 dict（见上文）
+
+加 notified 字段
+
+加文件锁（fcntl.flock）
+
+加清理逻辑（7 天过期）
+
+前置： 无（独立）
+
+验收： 手动写一条 pending，触发读取，验证 notified 从 false 变 true
+
+1.7 ⏳ 日志系统升级
+改什么：
+
+记录每次调用的模型名 + 调用类型（Q1/Q2a/Q2b/Q3/DSR1/ASTRA）
+
+记录 route 分支走向
+
+记录每步耗时
+
+日志格式统一（沿用步骤流水账风格）
+
+前置： 无（独立）
+
+验收： 跑一轮对话，日志能看出完整调用链
+
+阶段 2：工具执行
+2.1 ⏳ ASTRA 输出改为短句格式
+改什么：
+
+从 JSON {"name": "bash", "arguments": {...}} 改为紧凑格式 <call>bash command="ls"</call>
+
+加解析器解析短句格式
+
+加 Few-shot 提示词
+
+前置： 阶段 1 完成（ASTRA 链路能跑通）
+
+收益： Token 消耗降 40%，长链任务成功率提升
+
+2.2 ⏳ 工具执行层实装
+实装 7 个工具：
+
+工具	参数	用途
+bash	command	执行 shell 命令
+read_file	path, offset, limit	读取文件
+write_file	path, content	写入文件
+web_search	query	联网搜索
+set_reminder	time, content	设置提醒
+record_note	content	记录笔记
+get_time	—	获取时间
+get_location	—	获取位置（占位）
+前置： 2.1 完成
+
+验收： 每个工具单独跑一遍，验证真实执行
+
+2.3 ⏳ 安全拦截层
+四道检查：
+
+工具白名单：不在列表里的直接拒
+
+路径白名单：写操作只允许 /data/ai/workspace/ 和 /home/msixj/test/
+
+bash 命令解析：危险命令（rm -rf /、dd、mkfs）黑名单
+
+BLOCKED 返回结构化信息：{"reason": "path_out_of_whitelist", "suggestion": "..."}
+
+前置： 2.2 完成
+
+验收： 尝试写 /etc/passwd → BLOCKED，返回原因
+
+2.4 ⏳ 结果压缩
+改什么：
+
+工具输出 >50 行时：头 20 行 + 中间关键词行 + 尾 10 行
+
+中间用 ... (省略 N 行) ... 标记
+
+摘要写入 step-XX.json 的 summary 字段
+
+前置： 2.2 完成
+
+验收： 跑 ls -la /usr/bin（几千行），看回传是否截断
+
+2.5 ⏳ ASTRA scope 判断
+改什么：
+
+ASTRA 输出增加 scope: small|large 字段
+
+small → 直接返回 tool_calls
+
+large → 建立任务目录
+
+前置： 2.1 完成
+
+验收： "现在几点了" → small；"帮我写个 app" → large
+
+2.6 ⏳ 任务系统骨架
+建立目录结构：
+
+text
+/data/ai/tasks/
+├── active/{task_id}/
+│   ├── meta.json
+│   ├── plan.md
+│   ├── journal.md
+│   ├── steps/
+│   └── artifacts/
+├── archived/{year}/{task_id}/
+├── queue.json
+└── notify_pending.json
+让位机制（简化版）：
+
+ASTRA 每步完成 → 检查"是否有用户输入等待"
+
+有 → 暂停，让位给 DSR1 → 5 分钟无输入后继续
+
+先不实装 5 分钟计时，直接立即让位、立即恢复
+
+前置： 2.5 完成
+
+验收： 跑一个 large 任务，能看到 task_id 目录生成
+
+2.7 ⏳ DSR1 大工程验收接入
+两层检查：
+
+客观检查（脚本层）：
+
+文件是否存在
+
+退出码是否 0
+
+产物是否非空
+
+主观检查（DSR1）：
+
+输入：用户原始需求 + 每步结果摘要（不看原始产物）
+
+输出：PASS 或 FAIL：原因
+
+前置： 2.6 完成
+
+验收： large 任务完成后，DSR1 输出 PASS/FAIL
+
+
+1.1 ✅ → 1.2 ✅
+1.3 → 1.4 → 1.5
+1.6（独立）
+1.7（独立）
+
+1.5 完成 → 阶段 2 开始
+2.1 → 2.2 → 2.3 → 2.4
+2.1 → 2.5 → 2.6 → 2.7
