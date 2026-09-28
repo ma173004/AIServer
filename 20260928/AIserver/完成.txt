@@ -1,0 +1,43 @@
+ICTSBA 的 架構報告
+
+2.1的實裝
+
+ASTRA 现在走 Ollama 原生 tools 协议，返回的是结构化 JSON：
+
+json
+{"tool_calls": [{"function": {"name": "set_reminder", "arguments": "{\"time\":\"明天\",\"content\":\"带伞\"}"}}]}
+关键点：
+
+原生协议的好处：Ollama 帮你保证结构化，不用自己解析
+
+原生协议的坏处：arguments 是字符串格式，JSON 嵌套，token 消耗大
+
+改成短句 <call>name k=v</call> 意味着：
+
+必须放弃 tools 参数（否则模型会混乱）
+
+全靠 prompt 约束模型按格式输出
+
+解析器要自己写
+
+失去 Ollama 的原生结构化保障
+
+
+
+所以 2.1 有两个版本
+
+方案 B：改成短句，放弃原生 tools
+
+
+
+阶段 2.1 验收
+项	状态
+短句协议 prompt	✅
+parse_short_calls 解析器	✅
+ASTRA 改走短句	✅
+thinking 约束	✅（reasoning 只入日志）
+CHAT 降级逻辑	✅（代码已写，待实测触发）
+JSON 泄漏	✅ 0 次
+
+
+
