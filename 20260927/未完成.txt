@@ -1,0 +1,45 @@
+DSH 只信任 loopback	安全设计，防止 RCE 暴露	用 --trusted-host 加白名单
+
+dict.get(key, default) 返回 None	key 存在但值为 null	用 (m.get(key) or "")
+
+给常用命令做别名（比如 cd /data/ai/agents 改成 agents）
+alias agents='cd /data/ai/agents'
+
+
+
+一个可行的方案是，在 diaoyongai.py 的 call_ollama 函数里，增加以下逻辑：
+
+记录开始时间：在 requests.post 前记录 start_time = time.time()。
+
+计算耗时：请求完成后，用 time.time() - start_time 得到总耗时。
+
+获取数据量：resp.content 的长度就是接收到的字节数。resp.request.body 的长度是发送的字节数。
+
+计算速度：数据量除以耗时。
+
+记录思考内容：从 resp.json() 中提取 message.thinking 字段。
+
+整合进日志：你可以在 logger.py 里新增一个 log_ollama_call 函数，把这些统计信息和思考内容一起写入日志文件。
+
+"先输出再执行怎么实现" —— 用流式 SSE 分两段推送，或者返回两条消息。
+
+Qwen3 能解决 → 自己调工具 → 说两句（前一句 + 后一句）
+Qwen3 不能解决 → 交给 ASTRA
+    ↓
+ASTRA 执行复杂任务（总结视频、论文、草拟工作流、后台长任务）
+    ↓
+返回内容 + Qwen 的请求原因 + 原文信息
+    ↓
+交给 Qwen 第二问草拟回应
+
+/data/ai/tasks/
+├── active/
+│   └── {task_id}/
+│       ├── meta.json        # 状态、进度、当前步
+│       ├── plan.md          # 工作表
+│       ├── journal.md       # 人类可读日志
+│       ├── steps/           # 每步结构化记录
+│       └── artifacts/       # 中间产物
+├── archived/
+│   └── {year}/{task_id}/    # 完成后归档
+└── queue.json               # 排程队列

@@ -1,0 +1,35 @@
+Step 1（今天）：数据驱动工具定义 + 短句解析器增强
+
+tools.py：一份定义生成 prompt 和格式化器
+
+parse_short_calls 支持 """...""" 多行
+
+
+READ 分支：
+  Q1 → Q2a → 
+    需工具：
+      - 简单工具 → Qwen 短句 → **直接执行** → 结果回 Q2b 草拟 → Q3 → 输出
+      - 复杂工具 → ASTRA 规划 → **直接执行** → 结果回 Q2b 草拟 → Q3 → 输出
+    不需工具 → Q2b → Q3
+
+WRITE 分支：
+  ASTRA 判 scope:
+    - small → **直接执行** → 结果回 Q2b → Q3
+    - large → 生成 pending 等确认 → 用户确认 → 后台启动任务
+
+
+tools/
+├── __init__.py
+├── schema.py       # 从 tools.py 的 TOOLS 移过来
+├── parser.py       # parse_short_calls
+├── formatter.py    # format_tool_plan
+├── safety.py       # 安全拦截
+├── compress.py     # 三级压缩
+└── executors/
+    ├── __init__.py
+    ├── get_time.py
+    ├── get_weather.py
+    ├── set_reminder.py
+    ├── read_file.py
+    ├── write_file.py
+    └── bash.py
