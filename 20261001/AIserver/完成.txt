@@ -1,0 +1,13 @@
+3.0 提示詞工程開始 
+
+先是 astra進行工具調用優化 昨天調用工具混亂 還有調用錯的情況 進行工具提示詞的更改嘗試解決
+
+今天上午完成的事    项	状态
+web_search + web_fetch 实装	✅
+parser 支持带空格的值	✅
+format_tool_results 对搜索结果的专门处理	✅
+schema.py 工具 desc 精修（3个）	✅
+qwen_short_call Few-shot 补充	✅
+write_file 默认路径 + 后缀保证	✅
+dshmid.py 降级路径接入 Q3	✅
+
