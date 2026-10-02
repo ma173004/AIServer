@@ -1,0 +1,129 @@
+两个待观察问题（记录，不阻塞）
+1. Q2b 幻觉
+
+输入"今天好累啊"，Q2b 输出："我这就去给你揉揉肩"
+
+她没有这个能力，是幻觉。阶段 3 提示词工程处理。
+
+2. Q3 耗时比 Q2b 长
+
+Q2b 4.2s → Q3 13.7s。润色不该比草拟慢。可能 prompt 结构问题，阶段 3 一起调。
+
+阶段 2 详细清单
+2.1 ASTRA 输出改为短句格式✅
+目标： 从 JSON tool_calls 改为 <call>name k=v</call>，降 token + 提长链稳定性✅
+
+改什么：✅
+
+ASTRA 的 system prompt 加格式说明 + Few-shot✅
+
+call_astra_tools 加短句解析器✅
+
+保留 JSON 兼容（先双轨跑，稳定后只留短句）✅
+
+验收： 输入"提醒我明天带伞" → 返回 <call>set_reminder time=明天 content=带伞</call>✅
+
+2.2 工具执行层实装✅
+7 个工具：
+
+工具	参数	实装方式
+bash	command	subprocess + 超时
+read_file	path, offset, limit	Python 文件读
+write_file	path, content	Python 文件写
+web_search	query	占位（阶段 8 接真实 API）
+get_time	—	datetime.now()
+set_reminder	time, content	写 /data/ai/reminders.json
+record_note	content	写 /data/ai/notes/{date}.md
+依赖： 2.1 完成（需要解析短句）✅
+
+验收： 每个工具单独调用成功，真实产生副作用✅
+
+2.3 安全拦截层✅
+四道检查：
+
+工具白名单：不在 TOOLS_SCHEMA 里的直接拒✅
+
+路径白名单：写操作只允许 /data/ai/workspace/ 和 /home/msixj/test/✅
+
+bash 命令解析：危险命令黑名单（rm -rf /、dd、mkfs、curl | sh）✅
+
+BLOCKED 返回结构化：{"reason": "path_out_of_whitelist", "suggestion": "..."}✅
+
+依赖： 2.2 完成✅
+
+验收： 尝试写 /etc/passwd → BLOCKED 并返回原因✅
+
+2.4 结果压缩✅
+规则：
+
+输出 ≤ 50 行：原样返回✅
+
+输出 > 50 行：头 20 + 中间关键词行 + 尾 10✅
+
+中间用 ... (省略 N 行) ... 标记✅
+✅
+摘要写入 step-XX.json 的 summary 字段✅
+
+依赖： 2.2 完成✅
+
+验收： 跑 ls -la /usr/bin → 输出被截断✅
+
+2.5 ASTRA scope 判断✅
+改什么：
+
+ASTRA 输出增加 scope: small|large✅
+
+small → 直接返回 tool_calls✅
+
+large → 建立任务目录✅
+
+依赖： 2.1 完成✅
+
+验收： "现在几点了" → small；"帮我写个 app" → large✅
+
+2.6 任务系统骨架✅
+建立目录结构：✅
+
+text
+/data/ai/tasks/
+├── active/{task_id}/
+│   ├── meta.json
+│   ├── plan.md
+│   ├── journal.md
+│   ├── steps/
+│   └── artifacts/
+├── archived/{year}/{task_id}/
+├── queue.json
+└── notify_pending.json
+让位机制（简化版）：✅
+
+ASTRA 每步完成 → 检查"是否有用户输入等待"✅
+
+有 → 暂停让位 → DSR1 处理 → 5 分钟无输入后继续✅
+
+先不实装 5 分钟计时，直接立即让位、立即恢复✅
+
+依赖： 2.5 完成✅
+
+验收： 跑一个 large 任务，能看到 task_id 目录生成✅
+
+2.7 DSR1 大工程验收接入
+两层检查：
+
+客观检查（脚本层）：
+
+文件是否存在
+
+退出码是否 0
+
+产物是否非空
+
+主观检查（DSR1）：
+
+输入：用户原始需求 + 每步结果摘要（不看原始产物）
+
+输出：PASS 或 FAIL：原因
+
+依赖： 2.6 完成
+
+验收： large 任务完成后，DSR1 输出 PASS/FAIL
