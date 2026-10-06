@@ -1,0 +1,70 @@
+今日完成
+提示词工程（阶段 3 主体）
+Q2a 决策器
+
+字段分裂修复：tools → tool_calls，下游 dshmid.py、qwen_short_call 同步改
+
+字段精简：6 → 4（删 should_output、priority）
+
+规则：8 → 3
+
+few-shot：8 → 14 条，覆盖无 city 天气、多工具、模糊指代、条件句、大工程
+
+Q2b 事实整理器
+
+四段 → 三段（【事实】【用户原话】【需告知】，【已知信息】合入【事实】）
+
+规则：15 → 6 条，改为 pure few-shot 驱动（6 条边界示例）
+
+temperature 0.2 → 0.1
+
+修：动作请求无工具时禁止写"已完成"
+
+修：越权安慰（情绪类【需告知】写"无"）
+
+Q3 润色器
+
+"你是扮演者" → "你就是角色本人"
+
+6 条输出要求 + 5 条 few-shot
+
+修：KEY 泄漏
+
+修：无信息编造（询问类承认不知道）
+
+修：无工具承诺（动作类承认做不到）
+
+修：语气偏毒舌
+
+工具链
+compress.py
+
+THRESHOLD_SUMMARY 500 → 50
+
+HEAD_LINES 20 → 5，TAIL_LINES 10 → 5，MAX_KEY_LINES 20 → 8
+
+SUMMARY_TIMEOUT 60 → 180
+
+一级 ≤50 原样 → 二级 AI 总结 → 三级降级头尾
+
+call_ollama 重试
+
+2 次（首次 + 一次重试）
+
+只重试 5xx
+
+重试记 call/{type}_retry，不进上下文
+
+测试
+新建 test_q2b.py（8 条 mock）
+
+test_q3.py 迭代 v2 → v13（20 条靶向）
+
+V13：19/20 通过
+
+500 根因定位：Q3 temperature=0.6 触发采样循环，被 server 强杀
+
+基础设施
+SearXNG 容器已起，实际端口 8081（8080 被占）
+
+配置文件：/data/ai/searxng/settings.yml
