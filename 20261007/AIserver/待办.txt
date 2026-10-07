@@ -1,0 +1,10 @@
+明日待办
+
+
+学校测真实 DSH 请求 —— 验证 DSR1 不出现、无 persona_card 报错
+
+跑大测试 escalate 组 —— 贪吃蛇 + v2.md，验证 step-02 截断已修（max_tokens 8192）
+
+Q3 自己继续改 —— 幻觉问题（订机票承诺 / 记忆检索编造）
+
+跑 summarize 真实链路 —— v2.md 走 large 任务验证分段 + 汇总

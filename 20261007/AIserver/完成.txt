@@ -1,0 +1,38 @@
+完成
+核心架构
+
+剔 DSR1：dshmid.py 删 dsr1_classify 调用，流程改 Q1 → Q2a → 三分支
+
+task_manager.py 新建：建任务 / 队列 / 归档 / notify_pending
+
+task_runner.py 新建：常驻进程 / 打断检测 / 5 分钟空闲恢复 / 归档到日志工作区
+
+diaoyongai.py 加三套：astra_generate_plan / astra_execute_step / astra_summarize
+
+ASTRA 输出格式：<task> / <plan> / <step> / <call> 解析器
+
+内容处理
+
+summarize.py 新建：阈值 1000 字 / 分段 1500 字 / 逐段摘要 + 二次整合
+
+bash.py / read_file.py / web_fetch.py 接入 summarize
+
+tool_runner.py 去掉 compress 调用
+
+compress.py 废弃（文件还在）
+
+提示词
+
+Q2a 加 6 条示例（大活 4 + 防误判 2）
+
+Q2b 重写（三段；【需告知】= 额外信息，不再当"最终答复"）
+
+Q3 max_tokens 提到 8192
+
+大测试 3 组
+
+工具 16/16 ✅
+
+闲聊 4/4 ✅
+
+边界 2/4（矛盾句 ✅ 修好；订机票 ❌ 承诺幻觉；记忆检索 ❌ 编造）
