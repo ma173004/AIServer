@@ -1,0 +1,67 @@
+未完成（长期归档）
+阶段 3 遗留
+项	说明
+提示词与函数分离	抽到 prompts/ 目录，运行时读取。插入位置：阶段 3 开头
+Q2b 幻觉（"我这就去揉肩"）	属提示词工程，阶段 3 后续
+Q3 耗时 > Q2b	4.2s → 13.7s，prompt 结构问题
+Q2b/Q3 语气再校准	待角色卡实装后调
+READ 分支细分（3B 流程）	查询类应先分解"需调什么资料" → 工具。现走纯聊天路径，Qwen 编造（"蓝天白云温度刚好"）
+pending 机制
+读 pending 的逻辑缺失（session_id 每次新生成）
+
+execute_pending 未写
+
+错误重试/降级未做
+
+方案 C（上下文关联 plan_id）未定
+
+工具/接口
+项	状态
+qwen3 vs astra arguments 格式	Qwen3 是 dict，ASTRA 是 JSON 字符串，需统一
+/health 监控页	待做
+常用命令别名	alias agents='cd /data/ai/agents' 等
+提醒功能	只写 reminders.json，无输出通道
+web_search	现用 Tavily，将来切 SearXNG + trafilatura
+Tavily Key	硬编码，需迁到 .env
+阶段 4/7/8 参考文件（先不碰）
+bot.py：阶段 8 Discord 适配
+
+jiyi.py：阶段 4 记忆（BGE-M3 + Qdrant）
+
+rag.py：阶段 4 向量库
+
+AI.py：阶段 8 LLM 调用参考
+
+观察（不阻塞）
+日志重复输出（Session: 8cef82 贴两次）——下次重启留意
+
+log_final / _write 是否重复写入
+
+条件句"如果…就…"只调判断动作，后续动作由脚本决定
+
+依赖传递（step1 结果拼进 step2 参数）→ 属工具执行增强
+
+追问实现：方案 A（工具返回 missing_param）推荐
+
+独立线
+Sydney 实验（New_text.py）：你在完善，暂不讨论
+
+状态工程（阶段 6）：角色状态（"担心+0.2"）归这里
+
+ASTRA 提示词工程：单独分配一天
+
+精装提示词：固定模型分工，为记忆工程铺垫
+
+已确认不做
+priority 字段：不恢复。输入默认是打断信号，发生在 ASTRA 完成当前阶段工作流之后
+
+should_output：已删，主动信息 agent 单独写
+
+关键路径（确认）
+text
+输入 → DSR1（WRITE/READ）
+  ├─ READ → Q1 → Q2a → [工具] → Q2b → Q3
+  └─ WRITE → ASTRA → [scope] → Q2b → Q3
+三个模型：DSR1（分流）/ Qwen3（Q1-Q3）/ ASTRA（规划）
+
+记忆工程未接，memory_retrieve 暂无下游

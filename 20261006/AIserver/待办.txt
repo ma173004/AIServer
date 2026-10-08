@@ -1,0 +1,15 @@
+明日待办
+主线：ASTRA 工作流实施
+参考 任务骨架.txt：
+
+escalate_to_astra=true → 建 /data/ai/tasks/active/{task_id}/
+
+写 meta.json + plan.md
+
+逐步执行 + 让位机制
+
+每步写 step-XX.json + journal.md
+
+完成写 summary.md → notify_pending.json
+
+建议开工顺序：先做最小可跑（建目录 + meta + plan，不执行），跑通后再加循环。
