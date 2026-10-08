@@ -1,0 +1,27 @@
+核心修复
+Q2b 重构：从"格式化器"改成"验收器"。三段输出：【事实】（做过什么）、【记忆】（知道什么）、【用户原话】。加补搜规则——外部信息可搜、用户信息不搜。
+
+summarize 注册成工具：改 3 处
+
+tools/schema.py 加定义
+
+tools/executors/summarize_tool.py 新建
+
+tools/executors/__init__.py 加注册
+
+tools/safety.py 白名单加 summarize
+
+astra_execute_step prompt 修：删 <call>none</call> 选项，改成"每步必须调用工具"。
+
+task_runner.py 修 3 处：
+
+mark_check() 放对位置（pop 后 + paused 恢复后）→ 修"刚发任务卡 5 分钟"
+
+finalize_task 加 status=finalizing 先锁 → 防并发重复
+
+step 失败不继续 → 记 failed 状态，不生成 summary
+
+restart.sh：一键重启 dshmid + task_runner；DSH key 追加到 dsh_keys.log，去重。
+
+跑通
+论文任务端到端：建任务 → 读文件 → summarize → summary → 归档 ✅
