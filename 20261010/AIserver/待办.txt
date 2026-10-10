@@ -1,0 +1,57 @@
+明日待办
+
+1. 归档任务的通知输出
+现状：notify_pending.json 里存了，但没人消费。
+
+要做的：
+
+dshmid 每次请求开始时，检查 notify_pending.json 有没有未读
+
+有 → 塞进 Q3 的输入（Q3 顺带告知"主人，上次那个任务完成了"）
+
+或独立通道：任务完成 → 主动推给用户（阶段 7 主动消息）
+
+我倾向"顺带告知"：用户下次说话时 Q3 带一句。轻量，不打扰。
+
+2. 角色自我提升任务
+新概念。现在任务来源只有"用户发起"。你说的是——AI 自己也能给自己派活（比如"这个技能我还不会，自己去学"）。
+
+这个要讨论：
+
+谁判"该派活"？Q2a？独立监督器？
+
+派给谁？ASTRA？
+
+优先级怎么排（vs 用户任务）？
+
+用户怎么知道 AI 在自己学东西？
+
+今晚不定，明天专门聊。
+
+3. 工具统一制度
+现状三处定义：
+
+tools/schema.py — TOOLS（名称 + 描述 + 参数）
+
+tools/executors/__init__.py — EXECUTORS（名称 → 函数）
+
+tools/safety.py — 白名单元组（check 里那个 tuple）
+
+加工具要改三处，容易漏（今晚就漏了 safety）。
+
+统一方案：数据驱动。在 schema.py 的 TOOLS 里给每个工具加 "safety": "read" / "write" / "execute" 标签，safety.py 读标签判，不再硬编码列表。
+
+明天开工
+按顺序：
+
+hindsight_client.py —— 封装 retain / recall / list，独立测试
+
+接 recall 进 dshmid —— Q2a memory_retrieve → 调用 → 传 Q2b
+
+测 3-5 条 —— "我喜欢的颜色" 这类，确认链路通
+
+接 retain —— 会话结束 + "记一下"
+
+测 3-5 条 —— 说一句，会话结束，看 bank 里有没有
+
+Q2b 记忆判断 + 完整测试方案——放到第 5 步之后，单独一轮。

@@ -1,0 +1,19 @@
+http://100.88.41.51:8888/docs
+100.88.41.51
+10.0.0.2
+
+
+
+存：POST /v1/default/banks/{bank_id}/memories
+   body: {"items": [{"content": "..."}]}
+   
+查：POST /v1/default/banks/{bank_id}/memories/recall
+   body: {"query": "..."}
+   
+列：GET /v1/default/banks/{bank_id}/memories/list
+
+docker ps | grep hindsight
+docker logs hindsight-cn --tail 30
+
+curl -s http://localhost:8888/health
+curl -s http://localhost:9999/dashboard -I | head -3
