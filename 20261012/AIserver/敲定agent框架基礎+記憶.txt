@@ -1,0 +1,376 @@
+一、总体定位
+不是"工作流 vs agent"，是"每步的粒度"。
+
+三层结构：
+
+text
+总管（dshmid 调度层）
+  ├─ 接收 / 拆解 / 路由 / 融合 / Q3 / 输出
+  └─ 不管 Agent 内部怎么做
+
+Agent（7 个）
+  ├─ 自己的 prompt + 业务规则 + 技能注册表
+  ├─ 内部拆解 + 执行循环
+  └─ 出片段
+
+技能（skill）
+  ├─ 具体操作步骤
+  ├─ 自带工作记忆（Hindsight 知识摘要）
+  └─ 遇突发事件自主处理
+原则：总管不管 Agent 内部怎么做。
+
+二、7 个 Agent
+Agent	职责	产出物
+chat_agent	闲聊、情绪回应	纯对话
+task_agent	做事类（工具调用）	动作结果
+writing_agent	长篇写作	长文本
+learning_agent	学习输出	知识结构化
+research_agent	资料检索整理	资料包
+code_agent	代码相关	代码 + 说明
+generic_agent	兜底	通用
+允许"一输入多 Agent"。
+
+三、8 阶段流程
+text
+阶段 0：接收
+  输入：原话 + 最近对话 + 跨对话项目上下文
+  动作：Hindsight recall 查进行中项目
+
+阶段 1：拆解（1×LLM）
+  识别：子任务 / 潜在需求 / 风险 / 模糊点
+  产出：subtasks + 建议 Agent + fusion 策略
+
+阶段 2：不确定性分流
+  真模糊 → 追问（4 维度判据）
+  潜在需求 → 转 subtask
+  风险 → 加 subtask
+
+阶段 3：调度
+  按 depends_on 排序 + 识别可并行
+  按工具调用数量粗排（差距大 → 短的先输出）
+
+阶段 4：执行子任务
+  每个 subtask → 对应 Agent
+  Agent 内部：拆 → 执行 → 出片段
+  含 5 种回流 + 5 种动态创建
+
+阶段 5：收集片段
+  {slot, 内容, 状态}
+
+阶段 6：融合（规则判，不调 LLM）
+  separate / fused / main_first
+
+阶段 7：Q3 润色
+  1 份基础 prompt + Agent 参数注入
+  皮不变（映月）
+
+阶段 8：异步归档
+  retain 到 Hindsight
+  更新跨对话项目状态
+  记录成功的子任务 + 调用的 skill
+四、5 种回流
+回流类型	触发条件	drift	谁执行
+Local Repair	结果不完整，换关键词/工具	< 0.3	Agent 自己
+Sibling Notify	影响兄弟任务	任何	Agent 通知调度器
+Global Replan	子任务定位错了	0.3-0.6	回拆解器
+Reactive Exploration	方向根本错了	> 0.6	总管重选 Agent
+Cross-Session Resume	跨对话项目恢复	—	阶段 0/8
+关键：Sibling Notify 不是 Repair。 它不修自己，是通知别人调整。
+
+回流书格式：
+
+json
+{
+  "trigger": {
+    "trigger_id": "trig_001",
+    "trigger_type": "observation|failure|new_evidence",
+    "trigger_source": "exec_attempt_042",
+    "description": "..."
+  },
+  "evidence": {
+    "evidence_set": ["ev_001", "ev_002"],
+    "evidence_summary": "..."
+  },
+  "proposed_change": {
+    "change_type": "add_subtask|remove_subtask|modify_subtask|reorder",
+    "target_task_id": "t1",
+    "new_subtask": {...},
+    "reason": "..."
+  },
+  "impact_analysis": {
+    "affected_tasks": ["t1"],
+    "cancelled_work_items": [],
+    "budget_impact": {"tokens": 500, "time_seconds": 3}
+  },
+  "semantic_drift_score": 0.45,
+  "approval_status": "pending",
+  "approver": "scheduler"
+}
+五、5 种动态子任务创建
+类型	触发	动作
+信息缺口	缺关键信息	新增检索子任务
+能力缺口	缺工具/能力	新增委托/学习子任务
+依赖发现	发现依赖前置	新增前置子任务
+机会发现	发现增值机会	新增增值子任务
+冲突消解	子任务冲突	新增仲裁子任务
+六、子任务数据结构
+json
+{
+  "subtasks": [
+    {
+      "id": "t1",
+      "mode": "execute|retrieve|emotion|express",
+      "goal": "点外卖",
+      "detail": "平常吃的那家",
+      "depends_on": [],
+      "output_slot": "main|side|ref",
+      "confidence": 0.9,
+      "agent": "task_agent"
+    }
+  ],
+  "fusion": "separate|fused|main_first"
+}
+七、预算（两级）
+text
+Agent 级：
+  最多 5 个任务名额（主任务）
+  每个主任务内部最多 5 个子任务
+  每个子任务可延伸 2 层（子子 + 子子子）
+
+结构：
+  主任务 1（= Agent 收的这个）
+    × 5（子任务）
+    × 2（子子任务）
+    × 2（子子子任务）
+预算衰减：
+
+每调一次 LLM，扣 1 额度
+
+prompt 里告诉它"你还剩 N 个"
+
+用完 → 强制收敛
+
+时间统计延后： 跑够次数再统计。
+
+八、Checkpoint
+时机
+时机	存什么	成本
+每个 subtask 完成	全量	中
+每个 step 完成	增量（execution + budget）	低
+每个工具调用前后	增量（tool_calls）	低
+回流请求审批后	增量（reentry_history）	低
+用户打断时	全量	中
+定时（每 30 秒）	全量	中
+策略：
+
+全量：只在关键节点（subtask 完成 / 打断 / 回流）
+
+增量：每步都存
+
+恢复：最近全量 + 之后的增量重建
+
+存什么
+text
+- 任务图
+- 执行位置
+- 预算状态
+- 工具调用幂等性记录
+- 记忆上下文
+- 回流历史
+- 已收集片段
+九、打断恢复
+text
+打断时：
+  1. 正在跑的工具调用 → 继续跑完（外部 API 不能取消）
+  2. 当前步骤完成 → 保存 checkpoint → 状态 = waiting_user
+  3. 新用户输入到达 → 判断：
+       同任务补充 → 合并到当前任务，恢复
+       新任务 → 询问旧任务是否继续
+               若继续 → 问先进行哪个
+  4. 15 秒无输入 → 从 checkpoint 恢复
+和 ASTRA 打断机制一致。
+
+十、规则三层
+元规则（5 条，全局，人写死）
+text
+M1  不编造：事实句必须能追溯到来源
+M2  不够就承认
+M3  做不到就说
+M4  不懂就记
+M5  冲突不硬选
+业务规则（按 Agent 加载）
+text
+/data/ai/policies/
+  元规则.txt
+  chat_agent.json
+  task_agent.json
+  writing_agent.json
+  ...
+每个 Agent 只注入自己的业务规则 + 全局元规则。
+
+实现细节（代码里）
+轮数上限 / 预算 / 超时 / JSON 失败回退
+
+十一、记忆
+bank_id：master
+
+入： 循环内按需 recall
+
+出：
+
+会话结束异步批量 retain
+
+用户明说"记一下"立即 retain
+
+子 Agent 工作记忆：
+
+输出存 Hindsight 知识摘要
+
+下次相似场景 recall 复用
+
+本质是"经验沉淀"
+
+跨对话回流：
+
+Hindsight 里给项目打 tag
+
+阶段 0 自动查进行中项目
+
+阶段 8 更新项目状态
+
+学习回路：
+
+只记成功的子任务
+
+失败路径也存，标记"别这么做"（带原因）
+
+主任务是大体（没细节），记创建了哪些子 Agent + 调用了哪些 skill
+
+主任务和子任务分开存
+
+十二、输出节奏
+立即确认
+text
+T+0s: "收到，我看下"    ← 映月模板
+分段输出
+text
+T+0s:   "收到，我看下"           ← 模板
+T+15s:  "读了代码，找到一处要改"   ← 里程碑
+T+30s:  "改完了，代码发你"         ← 里程碑
+T+45s:  "改动点有这些……"         ← Q3 润色
+T+60s:  "为什么这么改……"          ← Q3 润色
+调度规则
+规则	动作
+距上次输出 > 15 秒 且 有可输出内容	攒批输出
+遇里程碑	立即输出
+可输出内容累计 ≥ 3 条	输出
+speakable 机制（暂缓）
+Agent 标记哪些 think 内容可输出。先跑主任务，后续做。
+
+十三、验证（三级）
+text
+Level 1: URL 格式合法 → 通过
+Level 2: 本地缓存有记录 → 通过
+Level 3: curl 能 200 → 通过
+Level 3 失败 → 标记 "未验证"，不阻塞输出
+URL 缓存存临时文件。
+
+十四、能力注册表
+分层
+text
+总管持 Agent 目录
+  每个 Agent 持自己技能注册表
+分级加载
+层	内容	谁看
+L0	名字 + 一句话描述	拆解器
+L1	详细参数 + 示例	匹配到才加载
+L2	执行脚本	跑起来才读
+技能文件示例
+json
+{
+  "id": "order_food",
+  "name": "点外卖",
+  "level": "L0",
+  "desc": "帮用户点外卖",
+  "mode": "execute",
+  "inputs": ["address", "dish", "pay_method"],
+  "depends_on_tools": ["web_search", "bash"]
+}
+子 Agent 生成
+先手写。自我提升还早。
+
+十五、Agent 间依赖
+统一 recall 接口，策略按 Agent 配：
+
+text
+writing_agent   → 项目上下文 + 用户偏好
+research_agent  → 已有资料 + 来源历史
+code_agent      → 代码库 + 之前改法
+task_agent      → 用户习惯 + 地址/偏好
+十六、调度与队列
+单任务队列，一次跑一个
+
+weight 降序 + enqueued_at 升序
+
+用户输入优先
+
+十七、超时
+不设阈值。
+
+看卡在哪一步，报用户：
+
+text
+"卡在 web_search，试了 3 次都空，要不要继续？"
+十八、融合策略
+条件	策略
+只有 1 个 subtask	separate
+有 execute 类 + 有 emotion 类	main_first
+全是同类	fused
+用户明确要求分开	separate
+规则决定，不调 LLM。
+
+十九、待定
+ASTRA 保留 / 切除（先保留）
+
+每个 Agent 的 skills 清单（未写）
+
+Q3 变体的具体参数（1 份 + 注入，参数待定）
+
+speakable 机制
+
+时间统计（跑够 N 次后）
+
+学习回路异步机制
+
+3B 小模型是否引入（放 RAM）
+
+子 Agent 生成触发条件
+
+二十、下一步开工
+写 qwen_decompose() 拆解器，测 12 条：
+
+#	输入	期望
+1	现在几点	单任务，task_agent
+2	今天不开心 + 点外卖	双任务，chat + task
+3	我喜欢的颜色	记忆，chat
+4	帮我总结 v2.md	escalate, research
+5	你好	单任务，chat
+6	帮我写代码 + 教我怎么改	双任务，code + learning
+7	今晚月光真美	潜在需求，chat
+8	帮我给老板发消息	风险，writing
+9	写挽回信给前女友	风险 + 情感，writing
+10	那个东西	真模糊，追问
+11	帮我对比这三款耳机，顺便看看哪个适合我	research + chat
+12	继续写昨天的小说	跨对话回流
+测 5 个指标：
+
+能否稳定输出结构化 JSON
+
+subtasks 数量（1-5）
+
+agent 字段是否匹配
+
+fusion 策略是否正确
+
+低置信度时是否正确标记
+
