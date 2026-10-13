@@ -1,0 +1,12 @@
+https://data.gov.hk/tc-data/dataset/hk-td-tis_21-etakmb
+
+https://data.gov.hk/tc-data/dataset/mtr-data2-nexttrain-data
+
+https://data.gov.hk/tc-data/dataset/hk-td-sm_7-real-time-arrival-data-of-gmb
+
+https://data.gov.hk/tc-data/dataset/hk-td-tis_11-pt-headway-en
+
+
+主動信息：
+https://data.gov.hk/tc-data/dataset/hk-td-tis_1-special-traffic-news 
+這是特別交通信息 可交由ai判斷
