@@ -1,0 +1,162 @@
+一、框架复习（敲定版）
+三层
+text
+总管（dshmid）
+  ├─ 拆解 / 路由 / 收集 / 融合 / 输出
+  └─ 不管 Agent 内部
+
+Agent（7 个）
+  ├─ 自己的 prompt + 业务规则 + 技能注册表
+  ├─ 内部拆解 + 执行循环
+  └─ 出片段
+
+技能（skill）
+  ├─ 具体步骤
+  ├─ 自带工作记忆
+  └─ 遇突发事件自主处理
+8 阶段
+text
+0 接收 → 1 拆解 → 2 不确定性分流 → 3 调度
+→ 4 执行 → 5 收集 → 6 融合 → 7 Q3 → 8 归档
+5 回流
+类型	drift	谁做
+Local Repair	< 0.3	Agent 自己
+Sibling Notify	任何	通知调度器
+Global Replan	0.3-0.6	回拆解器
+Reactive Exploration	> 0.6	总管重选 Agent
+Cross-Session Resume	—	阶段 0/8
+5 动态创建
+信息缺口 / 能力缺口 / 依赖发现 / 机会发现 / 冲突消解
+
+5 元规则（不可变）
+text
+M1 不编造
+M2 不够承认
+M3 做不到说做不到
+M4 不懂就记
+M5 冲突不硬选
+模型配置（今日实测后）
+位置	模型	用途
+GPU	14B Q5 关 thinking	主判断 + 润色
+CPU	3B Q5	反幻觉守门 / 简单二分类
+CPU	3B Q6	（备用）
+关键发现：14B 关 thinking 后 45 t/s，但反幻觉需要 prompt 补。3B 关 thinking 后反幻觉不输 14B。
+
+二、改工程流程表
+阶段 1：固化当前能跑的（1-2 天）先做后确认
+目标：让现有链路稳定，作为基线。
+
+#	改什么	改哪里	前置	验证
+1.1	14B 关 thinking	diaoyongai.py → call_ollama 默认 think=False	无	速度 45 t/s
+1.2	Q3 prompt 强化反幻觉	diaoyongai.py → qwen_q3_polish 加 M1-M5 + 示例	1.1	"订机票"→做不到
+1.3	Q2a prompt 加工具-输入映射	diaoyongai.py → qwen_q2a_decide（"记一下"→write_file 已对，"开会"该 need_tool）	1.1	R4 判 true
+1.4	重跑 smoke 8 条 + edge 4 条	—	1.1-1.3	全过
+阶段 1 完成标志：smoke + edge 全过，Q3 不再编造。
+
+阶段 2：搭目录骨架（1 天）
+目标：为后续分层留位置，不改逻辑。
+
+#	改什么	位置	前置	验证
+2.1	建 policies 目录	/data/ai/policies/	无	空目录
+2.2	元规则文件	policies/元规则.txt（5 条）	2.1	—
+2.3	建 registry 目录	/data/ai/registry/agents/、/data/ai/registry/skills/	无	空目录
+2.4	建 Agent 目录文件（7 个空壳）	registry/agents/{chat,task,...}.json（只有名字+一句话）	2.3	—
+阶段 2 完成标志：目录存在，prompt 还没接。
+
+阶段 3：接 Hindsight 记忆（2-3 天）
+目标：recall + retain 进链路。
+
+#	改什么	改哪里	前置	验证
+3.1	写 hindsight_client.py	新建（封装 retain / recall / list）	Hindsight 跑着	独立脚本测
+3.2	dshmid 接 recall	dshmid.py：Q2a 判 memory_retrieve → 调 client → 传 Q2b verify	3.1	"我喜欢的颜色"能答"蓝色"
+3.3	会话结束触发 retain	dshmid.py 或 task_runner.py 尾部	3.1	说一句，等，查 bank
+3.4	"记一下"立即 retain	dshmid.py：Q2a 判 write_file 时同步 retain	3.1	—
+阶段 3 完成标志：记忆进出的最小闭环跑通。
+
+阶段 4：拆第一个 Agent（3-5 天）
+目标：不动其他，只把 chat_agent 从主链里剥出来。
+
+为什么先拆 chat：最简单，没有工具，失败影响小。
+
+#	改什么	改哪里	前置	验证
+4.1	写 chat_agent.py	新建：接受子任务 → 内部链 → 出片段	阶段 2/3	单测
+4.2	chat agent 的 prompt	从 Q3 抽"闲聊"部分	4.1	—
+4.3	chat agent 的业务规则	policies/chat_agent.json	4.1	—
+4.4	总管路由	dshmid.py：判"这是闲聊"→ 走 chat_agent	4.1-4.3	"你好"走新链
+4.5	3B 接入：反幻觉守门	chat agent 里加一步"3B 检查输出"	4.4	"订机票"类闲聊能被拦
+阶段 4 完成标志：闲聊类输入走 chat_agent，其他走原链。
+
+阶段 5：写拆解器（3-5 天）
+目标：一切输入先过拆解器。
+
+#	改什么	改哪里	前置	验证
+5.1	qwen_decompose()	diaoyongai.py 新增	阶段 4	12 条测试集
+5.2	输出 schema	subtasks + fusion + confidence	5.1	JSON 稳定
+5.3	dshmid 主入口接拆解器	拆解 → 分发	5.1-5.2	—
+5.4	路由到已有 Agent	先只路由到 chat_agent + 原链	5.3	—
+5.5	简单输入短路	只含 1 个 subtask → 直通原链	5.3	"现在几点" 不拆
+阶段 5 完成标志：拆解器稳定输出，总管能按它路由。
+
+阶段 6：拆其他 Agent（1-2 周）
+逐个拆，一次一个。
+
+顺序	Agent	理由
+6.1	task_agent	已有工具链，最简单
+6.2	research_agent	有 summarize 基础
+6.3	code_agent	有 ASTRA 基础
+6.4	writing_agent	需要新写
+6.5	learning_agent	需要新写
+6.6	generic_agent	兜底
+每个 Agent 的拆法：
+
+建 {name}_agent.py
+
+抽它的 prompt（从现有 Q2a/Q3）
+
+写业务规则
+
+总管路由加分支
+
+测 5 条
+
+阶段 7：融合 + 分段输出（3-5 天）
+目标：让用户看到"边做边说"。
+
+#	改什么	改哪里	前置	验证
+7.1	融合规则	dshmid.py：按 fusion 策略拼片段	阶段 6	分开输出
+7.2	立即确认模板	收到输入 1 秒内回"收到，我看下"	7.1	—
+7.3	里程碑触发	Agent 每完成一步报告	7.1	—
+7.4	攒批输出	15 秒 / 3 条 / 里程碑	7.1-7.3	—
+阶段 8：回流 + 动态创建（2 周）
+最后做。 前面都稳了再上。
+
+#	改什么	改哪里	前置
+8.1	回流书 schema	agent_base.py	阶段 6
+8.2	Local Repair	Agent 内部	8.1
+8.3	Global Replan	回拆解器	8.1
+8.4	Sibling Notify	调度器	8.1
+8.5	Reactive Exploration	总管	8.1
+8.6	5 种动态创建	Agent 内部	8.1
+三、优先顺序总结
+text
+阶段 1（固化）  ── 最重要，必须先做
+阶段 2（目录）  ── 铺路
+阶段 3（记忆）  ── 独立模块，先通
+阶段 4（1 个 Agent 试点）
+阶段 5（拆解器）
+阶段 6（批量拆 Agent）
+阶段 7（融合 + 分段）
+阶段 8（回流 + 动态创建）── 最后，最复杂
+四、每阶段的"停"和"看"
+阶段	做完停一下，确认
+1	smoke + edge 全过，速度 45 t/s
+2	目录空壳存在
+3	"我喜欢的颜色" 能答
+4	"你好" 走新链
+5	12 条拆解测试过
+6	每个 Agent 独立可跑
+7	用户能看到分段
+8	回流书能发起
+从阶段 1 开始。 阶段 1 不做完，后面都白搭。
+
+下一个动作：你改 diaoyongai.py 的 call_ollama 默认 think=False，然后重跑 smoke，看速度是不是 45 t/s。
