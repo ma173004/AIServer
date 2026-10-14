@@ -1,0 +1,17 @@
+今晚完成
+项	状态
+Hindsight 部署（中文模型 + reranker）	✅
+entity_labels 8 类自动打标 100%	✅
+retain_mission 约束（中英 + fact_type）	✅
+3.1 hindsight_client.py	✅
+3.2 dshmid 接 recall → Q2b → Q3	✅
+3.4 "记一下"立即 retain	✅
+consolidation 走 CPU 3B（不抢 GPU）	✅
+14B 与 3B-cpu 共存	✅
+截图显示：text 库 22 条，"用户明天要和客户吃饭" 带 topic:schedule——3.4 落库成功。
+
+明天开工
+项	内容
+3.3	会话归档（session_log.jsonl + session_watcher 常驻）
+待定	你的"新想法"（今天提过的）
+可选	consolidation 3B 上下文从 32768 缩到 8192，减少 CPU 负载
