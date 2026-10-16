@@ -1,0 +1,36 @@
+核心链路全跑通：
+
+步	状态
+user 内容进 Hindsight	✅
+assistant 内容进 Hindsight（带 [映月说] 前缀）	✅
+speaker tag 分清	✅ speaker:user / speaker:assistant
+recall 按 speaker 过滤	✅
+Q3 从真记忆答	✅ "主人喜欢的颜色是蓝色呢"
+剩余问题（记录，不阻塞）
+1. assistant 内容被抽成"用户属性"
+
+text
+[world] 主人喜欢蓝色 | speaker:assistant, scope:personal
+[world] 映月喜欢蓝色 | speaker:assistant, scope:personal
+[world] 主人和映月都喜欢蓝色 | speaker:assistant, scope:dialogue
+"主人喜欢蓝色" 被判 scope:personal——Hindsight 认"主人" = "用户"。[映月说] 前缀没能完全防住。
+
+但 recall 时用 tags=["speaker:user"] 过滤 → assistant 条不返回。用户看不到污染。
+
+2. "用户喜欢蓝色" 有 2 条
+
+ID 不同，内容一样。两条都是 speaker:user。retain 被调了两次或 Hindsight 内部重写。
+
+recall 时返回 2 条相同的 → Q3 可能"看到重复但说一句"。暂不影响。
+
+3. 老条无 speaker tag
+
+你之前测的数据可能残留。不再清——让它们跟新数据共存，靠 any 模式兼容。
+
+阶段 3 完成度
+#	项	状态
+3.1	hindsight_client	✅
+3.2	dshmid 接 recall	✅
+3.3	会话归档（watcher 三层级）	✅
+3.4	"记一下"立即 retain	✅
+阶段 3 正式收尾。
