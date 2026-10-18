@@ -1,0 +1,15 @@
+至此，阶段 4.0 的核心骨架已经完全立起来了！ 我们在这一轮重构中，彻底完成了：
+
+拆解器接管：Q1 升级为 qwen_decompose，精准拆解意图。
+
+双 Agent 路由：chat 走闲聊陪伴，work 走工具调用。
+
+无打断多步执行：废除了烦人的 Pending 拦截，工具直接一把梭执行。
+
+滑动窗口上下文：session_watcher 完美实现了 5 分钟超时归档、Token 限制和 3B 压缩。
+
+透明化 Trace：每一步的输入输出、耗时、Token 全部写进了 logs/trace/ 和 chat_records.txt。
+
+
+
+Agent開發中 暫時還未完成 回環；子任務；提示詞優化；7大agent；上下文工程；記憶規範；discord接入；用戶卡
