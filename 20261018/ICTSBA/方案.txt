@@ -1,0 +1,206 @@
+第一步：搞数据库和登录。在试算表建好表，写好 Apps Script 的 login 函数，前端能登录跳转。
+
+第二步：搞定活动列表和日历。写 /getEvents 和 /getCalendarData，前端能渲染出列表和日历（红日 + 活动高亮）。
+
+第三步：死磕报名逻辑。这是核心，包含资格验证、名额判断、候补名单、撞期警告。
+
+第四步：教师后台。写 /manageEvent 和 /getParticipantList，实现增删改查和点名。
+
+第五步：仪表盘和邮件。写 /getDashboardStats 和定时触发器发邮件。
+
+
+
+
+
+
+
+
+
+🗄️ 一、 数据库架构（Google 试算表设计）
+为了配合 Apps Script 的脚本逻辑，试算表建议建立以下 4 个 Sheet（工作表）：
+
+1. Users（用户表）
+UserID (主键，学生学号 / 教师工号)
+
+Name (姓名)
+
+Role (角色：Student / Teacher / Admin)
+
+Password (密码，明文存即可，符合你“不管安全”的设定)
+
+Email (邮箱，用于发通知)
+
+Class (班级，学生填，老师留空)
+
+Club (学会，用逗号分隔，如 "美术学会,义工团")
+
+Grade (年级，如 "S5")
+
+IsOfficer (是否干事，TRUE/FALSE)
+
+2. Events（活动表）
+EventID (主键，自动生成)
+
+Name (活动名)
+
+RegStart (报名开始时间)
+
+RegEnd (报名截止时间)
+
+EventStart (活动开始时间)
+
+EventEnd (活动结束时间)
+
+EligibleClasses (允许班级，如 "S5" 或 "ALL")
+
+EligibleClubs (允许学会，如 "美术学会" 或 "ALL")
+
+EligibleGrades (允许年级，如 "S5,S6")
+
+RequireOfficer (是否仅限干事，TRUE/FALSE)
+
+MaxQuota (报名人数上限)
+
+HostID (负责老师 UserID)
+
+Description (简介)
+
+Status (状态：Active / Cancelled)
+
+3. Registrations（报名表）
+RegID (主键)
+
+EventID (关联活动)
+
+UserID (关联用户)
+
+Status (状态：Confirmed / Waitlist / Cancelled)
+
+Attended (是否出席：Yes / No)
+
+RegTime (报名时间，用于先来后到排序)
+
+4. Holidays（红日表）
+Date (日期)
+
+Name (假日名称)
+
+⚙️ 二、 后端架构（Google Apps Script API）
+后端采用 doGet 和 doPost 接收前端请求，统一返回 JSON 格式。
+
+核心 API 路由设计：
+1. 登录与鉴权
+
+POST /login：接收 UserID + Password，返回用户信息和 Role。
+
+2. 活动数据获取（前端下拉选单、日历、活动列表共用）
+
+GET /getEvents：获取全部活动。前端根据 Role 和 UserID 在本地过滤。支持 ?sort=latest 或 ?sort=time。
+
+GET /getCalendarData：接收 UserID，合并 Holidays（红日）和该用户参与/主持的活动，返回 JSON 供前端 FullCalendar 渲染。
+
+3. 学生端核心逻辑
+
+POST /registerEvent：接收 EventID + UserID。
+
+脚本逻辑：验证资格（班级/学会/年级/干事） ➡️ 检查是否已报名 ➡️ 检查截止时间 ➡️ 检查名额（满则入 Waitlist） ➡️ 检查撞期（有冲突就返回 Warning 警告，但不强行拦截） ➡️ 写入表。
+
+POST /cancelRegistration：接收 EventID + UserID。
+
+脚本逻辑：将状态改为 Cancelled。联动逻辑：查询该活动是否有 Waitlist 人员，按 RegTime 最早的一位，将其状态改为 Confirmed，并发送邮件通知该候补学生。
+
+4. 教师/管理员端核心逻辑
+
+POST /manageEvent：接收活动信息，执行新增、修改或删除（软删除，状态改为 Cancelled）。
+
+GET /getParticipantList：接收 EventID，返回报名名单、候补名单、出席情况。
+
+POST /markAttendance：接收 EventID + UserID，将 Attended 改为 Yes（可搭配 QR Code 扫码传参）。
+
+GET /getDashboardStats：返回统计数据（报名人数、出席率、不同级别学生参与人数）。
+
+POST /updateUserRole：管理员更改用户权限（Student/Teacher/Admin）。
+
+5. 邮件定时触发器（Time-driven Trigger）
+
+在 Apps Script 中设置每天上午 8:00 运行的脚本。
+
+逻辑：检查 Events 表中今天是否有活动，如果有，遍历 Registrations 表中状态为 Confirmed 的学生，使用 MailApp.sendEmail 发送提醒邮件。
+
+🖥️ 三、 前端架构（网页结构与交互）
+前端建议使用 HTML + CSS (Bootstrap 5) + 原生 JavaScript (Fetch API)。不用上 Vue/React，原生 JS 足够应付这个作业，且更容易和 Apps Script 对接。
+
+1. 网站地图 (Site Map)
+login.html（登录页）
+
+dashboard.html（主页/仪表盘，含日历、通知）
+
+events.html（活动列表）
+
+event_detail.html（活动详情与报名按钮）
+
+admin.html（教师/管理员后台）
+
+stats.html（仪表盘数据图表页，管理员专属）
+
+2. 页面功能拆解与交互
+① 登录页 (login.html)
+
+输入账号密码，点击登录，调用 /login API。
+
+登录成功后，将用户信息 (UserID, Role) 存入 sessionStorage 或 localStorage，跳转到 dashboard.html。
+
+② 仪表盘/日历 (dashboard.html)
+
+上方导航栏：显示当前用户名、角色、登出按钮。
+
+主体内容：FullCalendar 插件。
+
+数据加载：页面加载时调用 /getCalendarData。
+
+红日：显示为红色背景。
+
+我主持的活动（老师）：显示为蓝色。
+
+我参加的活动（学生）：显示为绿色。
+
+点击日历上的活动，弹出侧边栏或跳转到 event_detail.html。
+
+③ 活动列表 (events.html)
+
+筛选栏（Tabs）：全部活动 / 符合资格活动 / 已参加活动。
+
+搜索框：输入活动名，本地过滤。
+
+排序下拉框：时间排列 / 最新排列。
+
+活动卡片列表：显示活动名、时间、地点、剩余名额。
+
+按钮：“查看详情” / “快速报名”。点击报名直接调用 /registerEvent，如果有撞期警告，弹出 alert 提示用户。
+
+④ 活动详情 (event_detail.html)
+
+显示所有活动信息。
+
+报名按钮：根据报名状态动态显示“报名”、“已报名（点击取消）”、“候补中”。
+
+操作逻辑：点击报名 -> 接收后端返回的 success: true, warning: "撞期警告" -> 前端弹出确认框“系统检测到您当天有另一场活动，是否仍要报名？” -> 用户确认后再次发送带 confirm: true 的请求。
+
+⑤ 教师/管理员后台 (admin.html)
+
+活动管理 Tab：表格展示所有活动，带有“新增活动”（弹出模态框表单）、“修改”、“删除”按钮。
+
+报名管理 Tab：选择某个活动，下方展示两张表：Confirmed 名单和 Waitlist 名单。提供“标记出席”按钮。
+
+权限管理 Tab（仅管理员可见）：表格列出所有用户，提供下拉选单改变其 Role。
+
+表单验证（Validation）：新增活动时，前端 JS 验证“报名截止时间不能晚于活动开始时间”、“名额必须是正整数”等。
+
+⑥ 仪表盘数据 (stats.html)
+
+使用 Chart.js 绘制图表。
+
+展示：总活动数、总报名人次、平均出席率饼图、各班级参与人数柱状图。数据由 /getDashboardStats 提供。
+
+
+
